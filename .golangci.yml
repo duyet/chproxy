@@ -1,3 +1,5 @@
+version: 2
+
 run:
   timeout: 3m
   tests: false
@@ -28,14 +30,11 @@ linters:
     - goconst
     - gocritic
     - gocyclo
-    - gofmt
     - goheader
-    - goimports
     - gomoddirectives
     - gomodguard
     - goprintffuncname
     - gosec
-    - gosimple
     - govet
     - importas
     - ineffassign
@@ -50,7 +49,6 @@ linters:
     - testpackage
     - thelper
     - tparallel
-    - typecheck
     - unused
     - wastedassign
     - whitespace
@@ -58,12 +56,10 @@ linters:
     # Should be readded in the future with a dedicated PR to do the fix
     - funlen
     - gocognit
-    - gofumpt
     - nestif
     - nolintlint
     - revive
     - staticcheck
-    - stylecheck
     - unconvert
     - unparam
 

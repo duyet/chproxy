@@ -93,7 +93,8 @@ type Config struct {
 func (c *Config) String() string {
 	b, err := yaml.Marshal(withoutSensitiveInfo(c))
 	if err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "ERROR: failed to marshal config: %s\n", err)
+		return fmt.Sprintf("<error marshaling config: %s>", err)
 	}
 	return string(b)
 }

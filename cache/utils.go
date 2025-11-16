@@ -15,7 +15,13 @@ func walkDir(dir string, f func(fi os.FileInfo)) error {
 	if err != nil {
 		return fmt.Errorf("cannot open %q: %w", dir, err)
 	}
-	defer fd.Close()
+	defer func() {
+		if closeErr := fd.Close(); closeErr != nil {
+			// Log the error but don't override the return value
+			// since we might already be returning an error
+			fmt.Fprintf(os.Stderr, "failed to close directory %q: %s\n", dir, closeErr)
+		}
+	}()
 
 	for {
 		fis, err := fd.Readdir(1024)

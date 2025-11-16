@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/contentsquare/chproxy/config"
@@ -79,7 +80,9 @@ func NewHeartbeat(c config.HeartBeat, options ...Option) HeartBeat {
 	}
 
 	if newHB.request != defaultEndpoint && newHB.user == "" {
-		panic("BUG: user is empty, no default user provided")
+		fmt.Fprintf(os.Stderr, "ERROR: user is empty, no default user provided; falling back to default endpoint\n")
+		// Fall back to default endpoint which doesn't require user credentials
+		newHB.request = defaultEndpoint
 	}
 
 	return newHB
@@ -102,7 +105,12 @@ func (hb *heartBeat) IsHealthy(ctx context.Context, addr string) error {
 	if err != nil {
 		return fmt.Errorf("cannot send request in %s: %w", time.Since(startTime), err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			// Log but don't override the function's return value
+			fmt.Fprintf(os.Stderr, "failed to close response body: %s\n", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("non-200 status code: %s", resp.Status)

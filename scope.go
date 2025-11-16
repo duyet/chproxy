@@ -337,7 +337,11 @@ func (s *scope) killQuery() error {
 	if err != nil {
 		return fmt.Errorf("error while executing clickhouse query %q at %q: %w", query, addr, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Errorf("failed to close response body: %s", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(resp.Body)
