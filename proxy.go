@@ -347,7 +347,12 @@ func (rp *reverseProxy) proxyRequest(s *scope, rw ResponseWriterWithCode, srw *s
 		respondWith(rw, err, http.StatusGatewayTimeout)
 		srw.statusCode = http.StatusGatewayTimeout
 	default:
-		panic(fmt.Sprintf("BUG: context.Context.Err() returned unexpected error: %s", err))
+		// Handle unexpected context errors gracefully
+		log.Errorf("unexpected context error: %s", err)
+		q := getQuerySnippet(req)
+		err = fmt.Errorf("%s: unexpected error: %w; query: %q", s, err, q)
+		respondWith(rw, err, http.StatusInternalServerError)
+		srw.statusCode = http.StatusInternalServerError
 	}
 }
 
@@ -359,7 +364,9 @@ func listenToCloseNotify(ctx context.Context, rw ResponseWriterWithCode) (contex
 	// rw must implement http.CloseNotifier.
 	rwc, ok := rw.(http.CloseNotifier)
 	if !ok {
-		panic("BUG: the wrapped ResponseWriter must implement http.CloseNotifier")
+		log.Errorf("the wrapped ResponseWriter does not implement http.CloseNotifier")
+		// Return context without close notification handling
+		return ctx, ctxCancel
 	}
 
 	ch := rwc.CloseNotify()
@@ -385,7 +392,11 @@ func (rp *reverseProxy) serveFromCache(s *scope, srw *statResponseWriter, req *h
 	cachedData, err := userCache.Get(key)
 	if err == nil {
 		// The response has been successfully served from cache.
-		defer cachedData.Data.Close()
+		defer func() {
+			if closeErr := cachedData.Data.Close(); closeErr != nil {
+				log.Errorf("failed to close cached data: %s", closeErr)
+			}
+		}()
 		cacheHit.With(labels).Inc()
 		cachedResponseDuration.With(labels).Observe(time.Since(startTime).Seconds())
 		log.Debugf("%s: cache hit", s)
@@ -401,7 +412,11 @@ func (rp *reverseProxy) serveFromCache(s *scope, srw *statResponseWriter, req *h
 		if transactionStatus.State.IsCompleted() {
 			cachedData, err := userCache.Get(key)
 			if err == nil {
-				defer cachedData.Data.Close()
+				defer func() {
+					if closeErr := cachedData.Data.Close(); closeErr != nil {
+						log.Errorf("failed to close cached data: %s", closeErr)
+					}
+				}()
 				_ = RespondWithData(srw, cachedData.Data, cachedData.ContentMetadata, cachedData.Ttl, XCacheHit, http.StatusOK, labels)
 				cacheHitFromConcurrentQueries.With(labels).Inc()
 				log.Debugf("%s: cache hit after awaiting concurrent query", s)
@@ -424,7 +439,11 @@ func (rp *reverseProxy) serveFromCache(s *scope, srw *statResponseWriter, req *h
 		respondWith(srw, err, http.StatusInternalServerError)
 		return
 	}
-	defer tmpFileRespWriter.Close()
+	defer func() {
+		if closeErr := tmpFileRespWriter.Close(); closeErr != nil {
+			log.Errorf("failed to close tmp file response writer: %s", closeErr)
+		}
+	}()
 
 	// Initialise transaction
 	err = userCache.Create(key)
@@ -624,6 +643,24 @@ func calcQueryParamsHash(origParams url.Values) uint32 {
 //
 // New config is applied only if non-nil error returned.
 // Otherwise old config version is kept.
+// calculateTransactionsTimeout calculates the maximum execution time from users config.
+// It is used for creation of transactions registry inside async cache.
+// It is set to the highest configured execution time of all users to avoid setups
+// where users use the same cache and have configured different maxExecutionTime.
+// This would provoke undesired behaviour of `dogpile effect`.
+func (rp *reverseProxy) calculateTransactionsTimeout(users []config.User) config.Duration {
+	transactionsTimeout := config.Duration(0)
+	for _, user := range users {
+		if user.MaxExecutionTime > transactionsTimeout {
+			transactionsTimeout = user.MaxExecutionTime
+		}
+		if user.IsWildcarded {
+			rp.hasWildcarded = true
+		}
+	}
+	return transactionsTimeout
+}
+
 func (rp *reverseProxy) applyConfig(cfg *config.Config) error {
 	// configLock protects from concurrent calls to applyConfig
 	// by serializing such calls.
@@ -646,22 +683,15 @@ func (rp *reverseProxy) applyConfig(cfg *config.Config) error {
 			// Speed up applyConfig by closing caches in background,
 			// since the process of cache closing may be lengthy
 			// due to cleaning.
-			go tmpCache.Close()
+			go func(c *cache.AsyncCache) {
+				if closeErr := c.Close(); closeErr != nil {
+					log.Errorf("failed to close cache: %s", closeErr)
+				}
+			}(tmpCache)
 		}
 	}()
 
-	// transactionsTimeout used for creation of transactions registry inside async cache.
-	// It is set to the highest configured execution time of all users to avoid setups were users use the same cache and have configured different maxExecutionTime.
-	// This would provoke undesired behaviour of `dogpile effect`
-	transactionsTimeout := config.Duration(0)
-	for _, user := range cfg.Users {
-		if user.MaxExecutionTime > transactionsTimeout {
-			transactionsTimeout = user.MaxExecutionTime
-		}
-		if user.IsWildcarded {
-			rp.hasWildcarded = true
-		}
-	}
+	transactionsTimeout := rp.calculateTransactionsTimeout(cfg.Users)
 
 	if err := initTempCaches(caches, transactionsTimeout, cfg.Caches); err != nil {
 		return err

@@ -18,7 +18,9 @@ import (
 func respondWith(rw http.ResponseWriter, err error, status int) {
 	log.ErrorWithCallDepth(err, 1)
 	rw.WriteHeader(status)
-	fmt.Fprintf(rw, "%s\n", err)
+	if _, writeErr := fmt.Fprintf(rw, "%s\n", err); writeErr != nil {
+		log.Errorf("failed to write error response: %s", writeErr)
+	}
 }
 
 var defaultUser = "default"
@@ -79,7 +81,12 @@ func getQuerySnippet(req *http.Request) string {
 
 func hash(s string) uint32 {
 	h := fnv.New32a()
-	h.Write([]byte(s))
+	// hash.Hash.Write never returns an error according to the interface documentation,
+	// but we check it to satisfy linters
+	if _, err := h.Write([]byte(s)); err != nil {
+		// This should never happen with fnv hash
+		log.Errorf("unexpected error writing to hash: %s", err)
+	}
 	return h.Sum32()
 }
 

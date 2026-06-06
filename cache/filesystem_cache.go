@@ -107,7 +107,9 @@ func (f *fileSystemCache) Get(key *Key) (*CachedData, error) {
 	if age > f.expire {
 		// check if file exceeded expiration time + grace time
 		if age > f.expire+f.grace {
-			file.Close()
+			if closeErr := file.Close(); closeErr != nil {
+				log.Errorf("cache %q: failed to close file %q: %s", f.Name(), fp, closeErr)
+			}
 			return nil, ErrMissing
 		}
 		// Serve expired file in the hope it will be substituted
@@ -115,7 +117,9 @@ func (f *fileSystemCache) Get(key *Key) (*CachedData, error) {
 	}
 
 	if err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			log.Errorf("cache %q: failed to close file %q: %s", f.Name(), fp, closeErr)
+		}
 		return nil, fmt.Errorf("failed to read file content from %q: %w", f.Name(), err)
 	}
 

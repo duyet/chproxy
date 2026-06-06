@@ -68,7 +68,7 @@ func main() {
 
 	server := cfg.Server
 	if len(server.HTTP.ListenAddr) == 0 && len(server.HTTPS.ListenAddr) == 0 {
-		panic("BUG: broken config validation - `listen_addr` is not configured")
+		log.Fatalf("broken config validation - `listen_addr` is not configured")
 	}
 
 	if server.HTTP.ForceAutocertHandler {
@@ -177,7 +177,7 @@ func serve(cfg config.HTTP) {
 	h = http.HandlerFunc(serveHTTP)
 	if cfg.ForceAutocertHandler {
 		if autocertManager == nil {
-			panic("BUG: autocertManager is not inited")
+			log.Fatalf("autocertManager is not initialized")
 		}
 		addr := ln.Addr().String()
 		parts := strings.Split(addr, ":")

@@ -120,7 +120,11 @@ func (rw *statResponseWriter) CloseNotify() <-chan bool {
 	// The rw.ResponseWriter must implement http.CloseNotifier
 	rwc, ok := rw.ResponseWriter.(http.CloseNotifier)
 	if !ok {
-		panic("BUG: the wrapped ResponseWriter must implement http.CloseNotifier")
+		log.Errorf("the wrapped ResponseWriter does not implement http.CloseNotifier")
+		// Return a channel that will never send anything
+		// This prevents panic but client disconnect won't be detected
+		ch := make(chan bool)
+		return ch
 	}
 	return rwc.CloseNotify()
 }

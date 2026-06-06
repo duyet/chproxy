@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -124,7 +125,9 @@ func (n Networks) Contains(addr string) bool {
 
 	ip := net.ParseIP(h)
 	if ip == nil {
-		panic(fmt.Sprintf("BUG: unexpected error while parsing IP: %s", h))
+		fmt.Fprintf(os.Stderr, "ERROR: unexpected error while parsing IP: %s\n", h)
+		// Return false to reject connections with invalid IPs
+		return false
 	}
 
 	for _, ipnet := range n {

@@ -25,13 +25,23 @@ type AsyncCache struct {
 }
 
 func (c *AsyncCache) Close() error {
+	var err error
 	if c.TransactionRegistry != nil {
-		c.TransactionRegistry.Close()
+		if closeErr := c.TransactionRegistry.Close(); closeErr != nil {
+			err = closeErr
+		}
 	}
 	if c.Cache != nil {
-		c.Cache.Close()
+		if closeErr := c.Cache.Close(); closeErr != nil {
+			// If we already have an error, log this one
+			if err != nil {
+				log.Errorf("error closing cache (previous close error already occurred): %s", closeErr)
+			} else {
+				err = closeErr
+			}
+		}
 	}
-	return nil
+	return err
 }
 
 func (c *AsyncCache) AwaitForConcurrentTransaction(key *Key) (TransactionStatus, error) {
